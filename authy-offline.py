@@ -45,7 +45,7 @@ def onMessage(message, data):
         dataFile = message['payload'].replace('&quot;','"')
         parseXML(dataFile)
         print("-----------------------------------------------------")
-        print(u"{0}".format(message['payload'].replace('&quot;','"')))
+        print(u"{0}".format(dataFile))
     else:
         print(message)
 
