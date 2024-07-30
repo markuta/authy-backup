@@ -1,5 +1,5 @@
 # authy-backup
-A way to extract Authy TOTP tokens using a rooted Android device.
+A way to extract Authy TOTP tokens using a rooted Android device. Read the full blog post on: https://markuta.com/export-authy-backups/
 
 ## Demo
 https://github.com/user-attachments/assets/d0bb8f59-9da7-405b-9eae-30dd76f91eac
