@@ -35,6 +35,20 @@ jsCode = """
     });
 """
 
+# Support Aegis plain JSON feature
+# e.g. https://github.com/beemdevelopment/Aegis/blob/master/app/src/test/resources/com/beemdevelopment/aegis/importers/aegis_plain.json
+aegis_plain = {
+    "version": 1,
+    "header": {
+        "slots": None,
+        "params": None
+    },
+    "db": {
+        "version": 1,
+        "entries": []   
+    }
+}
+
 def onMessage(message, data):
     # print(message)
     # {'type': 'send', 'payload':'some strings'}
@@ -49,6 +63,10 @@ def onMessage(message, data):
     else:
         print(message)
 
+def exportJSON(data):
+    # Create a aegis_plain export file
+    with open('exported.json', 'w') as f:
+        json.dump(data, f)
 
 def parseXML(dataFile):
     root = ET.fromstring(dataFile) 
@@ -66,16 +84,26 @@ def parseXML(dataFile):
     )
 
     for i in range(len(data)):
-        # verbose option to display the following
-        #print(data[i]["accountType"])
-        #print(data[i]["decryptedSecret"])
-        #print(data[i]["digits"])
-        #print(data[i]["originalName"])
-        #print(data[i]["timestamp"])
-        #print("\n")
-
         # Check the type
         if data[i]["accountType"] == "authenticator":
+
+            # Create a Aegis_plain entry template
+            entry = {
+                "type": "totp",
+                "uuid": "",
+                "name": data[i]["originalName"],
+                "issuer": data[i]["originalIssuer"],
+                "icon": None,
+                "info": {
+                    "secret": data[i]["decryptedSecret"],
+                    "algo": "SHA256",
+                    "digits": data[i]["digits"],
+                    "period": 30 # might not be suitable for all
+                }
+            }
+
+            # Add to the list
+            aegis_plain["db"]["entries"].append(entry)
 
             # Quickly generate a TOTP to compare with the app
             totp = pyotp.TOTP(data[i]["decryptedSecret"], digits=data[i]["digits"], interval=30).now()
@@ -100,7 +128,10 @@ def parseXML(dataFile):
         else:
             print("[!] Skipping unsupported type...\n")
             pass
-
+    
+    # write JSON to file
+    exportJSON(aegis_plain)
+    
 # Show what Frida script we are running
 #print(jsCode)
 
