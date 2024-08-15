@@ -50,8 +50,6 @@ aegis_plain = {
 }
 
 def onMessage(message, data):
-    # print(message)
-    # {'type': 'send', 'payload':'some strings'}
     if message["type"] == 'send':
         # print(u"[*] {0}".format(message['payload']))
         print("[+] Extracting Authy TOTP Tokens... ")
@@ -70,12 +68,16 @@ def exportJSON(data):
 
 def parseXML(dataFile):
     root = ET.fromstring(dataFile) 
-    #print(root[1].text)
     data = json.loads(root[1].text)
     # Count number of TOTPs
     numTokens = len(data)
-    print(f"[+] Found ({numTokens}) TOTP tokens\n")
+    if numTokens > 0:
+        print(f"[+] Found ({numTokens}) TOTP tokens\n")
+    else:
+        print(f"[!] No TOTP tokens found\n")
+        exit(1)
     
+    # QR configuration
     qr = qrcode.QRCode(
         version=1,
         error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -84,50 +86,56 @@ def parseXML(dataFile):
     )
 
     for i in range(len(data)):
-        # Check the type
-        if data[i]["accountType"] == "authenticator":
+        # TODO handle different accountTypes better
+        if data[i]["accountType"] != "authenticator":
+            print(f"[!] Attempting to dump unsupported account type '{data[i]["accountType"]}'\n")
+        
+        # Assign values and default empty ones
+        name = data[i].get('originalName', None)
+        issuer = data[i].get('originalIssuer', None)
+        secret = data[i].get('decryptedSecret', None)
+        timestamp = data[i].get('timestamp', None)
+        digits = data[i].get('digits', None)
 
-            # Create a Aegis_plain entry template
-            entry = {
-                "type": "totp",
-                "uuid": "",
-                "name": data[i]["originalName"],
-                "issuer": data[i]["originalIssuer"],
-                "icon": None,
-                "info": {
-                    "secret": data[i]["decryptedSecret"],
-                    "algo": "SHA256",
-                    "digits": data[i]["digits"],
-                    "period": 30 # might not be suitable for all
-                }
+        # Create a Aegis_plain entry template
+        entry = {
+            "type": "totp",
+            "uuid": "",
+            "name": name,
+            "issuer": issuer,
+            "icon": None,
+            "info": {
+                "secret": secret,
+                "algo": "SHA256",
+                "digits": digits,
+                "period": 30 # default 30 seconds
             }
+        }
+        aegis_plain["db"]["entries"].append(entry)
+        # Display info about each result
+        print(f"Name:    {name}")
+        print(f"Issuer:  {issuer}")
+        print(f"Secret:  {secret}")
+        print(f"Timestamp:  {timestamp}")
 
-            # Add to the list
-            aegis_plain["db"]["entries"].append(entry)
-
-            # Quickly generate a TOTP to compare with the app
-            totp = pyotp.TOTP(data[i]["decryptedSecret"], digits=data[i]["digits"], interval=30).now()
-            
-            # Display some info about the record
-            print(f"Name: {data[i]["originalName"]}")
-            print(f"Issuer: {data[i]["originalIssuer"]}")
-            print(f"Secret: {data[i]["decryptedSecret"]}")
-            print(f"Timestamp: {data[i]["timestamp"]}")
-            print(f"TOTP: {totp} (compare with app)")
-
-            # Generate a QR code with TOTP secret
-            otpauth = f"otpauth://totp/{data[i]["originalName"]}?secret={data[i]["decryptedSecret"]}&digits={data[i]["digits"]}&issuer={data[i]["originalIssuer"]}&period=30"
-            
-            qr.add_data(otpauth)
-            f = io.StringIO()
-            qr.print_ascii(out=f)
-            f.seek(0)
-            print(f.read())
-            # Must be cleared 
-            qr.clear()
-        else:
-            print("[!] Skipping unsupported type...\n")
+        if secret and digits == None:
+            # No point of generating anything
             pass
+
+        # Quickly generate a TOTP to compare with the app
+        totp = pyotp.TOTP(secret, digits=digits, interval=30).now()
+        print(f"TOTP: {totp} (compare with app!)")
+
+        # Generate a QR code with TOTP secret
+        otpauth = f"otpauth://totp/{name}?secret={secret}&digits={digits}&issuer={issuer}&period=30"
+        qr.add_data(otpauth)
+        f = io.StringIO()
+        # Print to console
+        qr.print_ascii(out=f)
+        f.seek(0)
+        print(f.read())
+        # Must be cleared 
+        qr.clear()
     
     # write JSON to file
     exportJSON(aegis_plain)
