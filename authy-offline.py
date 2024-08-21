@@ -95,7 +95,6 @@ def parseXML(dataFile):
         # TODO handle different accountTypes better
         account_type = data[i].get('accountType', None)
         if account_type != "authenticator":
-            # TODO: handle different accountTypes better
             print(f"[+] Attempting to dump unsupported account type '{data[i]["accountType"]}'\n")
 
         if set(data[i].keys()) - known_keys:
