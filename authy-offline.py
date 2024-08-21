@@ -54,10 +54,8 @@ def onMessage(message, data):
         # print(u"[*] {0}".format(message['payload']))
         print("[+] Extracting Authy TOTP Tokens... ")
         # Do some magic
-        dataFile = message['payload'].replace('&quot;','"')
+        dataFile = message['payload'].replace('&quot;', '"')
         parseXML(dataFile)
-        print("-----------------------------------------------------")
-        print(u"{0}".format(dataFile))
     else:
         print(message)
 
@@ -65,6 +63,10 @@ def exportJSON(data):
     # Create a aegis_plain export file
     with open('exported.json', 'w') as f:
         json.dump(data, f)
+
+def exportXML(dataFile: str) -> None:
+    with open('exported_authy.xml', 'a') as f:
+        f.write(dataFile)
 
 def parseXML(dataFile):
     root = ET.fromstring(dataFile) 
@@ -150,6 +152,8 @@ def parseXML(dataFile):
     
     # write JSON to file
     exportJSON(aegis_plain)
+    exportXML(dataFile)
+    print("Press any key to exit")
     
 # Show what Frida script we are running
 #print(jsCode)
