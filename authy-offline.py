@@ -117,6 +117,7 @@ def parseXML(dataFile):
         if issuer is None and ":" not in (name or "") and account_type != "authenticator":
             # account_type often indicates the issuer (e.g. microsoft) when issuer is missing
             # if name doesn't contain issuer (i.e. doesn't contain :), set this fallback issuer
+            print(f"[!] Warning: guessing missing issuer ({account_type}) from account type")
             issuer = account_type
 
         # Create a Aegis_plain entry template
