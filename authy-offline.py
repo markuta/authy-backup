@@ -96,6 +96,7 @@ def parseXML(dataFile):
         secret = data[i].get('decryptedSecret', None)
         timestamp = data[i].get('timestamp', None)
         digits = data[i].get('digits', None)
+        period = None  # Authy format doesn't seem to contain this
 
         # Create a Aegis_plain entry template
         # TODO check value before assignment
@@ -109,7 +110,7 @@ def parseXML(dataFile):
                 "secret": secret,
                 "algo": "SHA256",
                 "digits": digits,
-                "period": 30 # default 30 seconds
+                "period": period or 30 # default 30 seconds
             }
         }
         aegis_plain["db"]["entries"].append(entry)
@@ -117,7 +118,7 @@ def parseXML(dataFile):
         print(f"Name:    {name}")
         print(f"Issuer:  {issuer}")
         print(f"Secret:  {secret}")
-        print(f"Digits:  {secret}")
+        print(f"Digits:  {digits}")
         print(f"Timestamp:  {timestamp}")
 
         # TODO check all of them...
@@ -131,11 +132,19 @@ def parseXML(dataFile):
             # Quickly generate a TOTP to compare with the app
             try:
                 # TODO check secret is valid base32
-                totp = pyotp.TOTP(secret, digits=6, interval=30).now()
-                print(f"TOTP: {totp} (compare with app!)")
+                # https://github.com/google/google-authenticator/wiki/Key-Uri-Format
+                params = {}
+                params["digits"] = digits  # optional, default 6
+                if issuer is not None:  # strongly recommended, but can be taken from label (e.g. Dropbox:email)
+                    params["issuer"] = issuer
+                if period is not None:  # optional, default 30
+                    params["interval"] = period
+                totp = pyotp.TOTP(secret, name=name, **params)
+                print(f"TOTP: {totp.now()} (compare with app!)")
 
                 # Generate a QR code with TOTP secret
-                otpauth = f"otpauth://totp/{name}?secret={secret}&digits={digits}&issuer={issuer}&period=30"
+                otpauth = totp.provisioning_uri()
+                print(f"OTPAuth: {otpauth}")
 
                 qr.add_data(otpauth)
                 f = io.StringIO()
