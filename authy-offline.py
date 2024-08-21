@@ -85,17 +85,40 @@ def parseXML(dataFile):
         border=2,
     )
 
+    known_keys = {
+        # fields we use:
+        "accountType", "decryptedSecret", "digits", "name", "originalIssuer", "originalName", "timestamp",
+        # fields we know we don't need:
+        "encryptedSecret", "salt", "key_derivation_iterations", "upload_state", "hidden", "id", "isNew", "logo",
+    }
     for i in range(len(data)):
         # TODO handle different accountTypes better
-        if data[i]["accountType"] != "authenticator":
+        account_type = data[i].get('accountType', None)
+        if account_type != "authenticator":
             print(f"[+] Attempting to dump unsupported account type '{data[i]["accountType"]}'\n")
-        
+
+        if set(data[i].keys()) - known_keys:
+            print(f"[!] Warning: unexpected keys in item, may impact generation: {set(data[i].keys()) - known_keys}")
+
         # Assign values and default empty ones
-        name = data[i].get('originalName', None)
+        original_name = data[i].get('originalName', None)
+        name = data[i].get('name', original_name)
         issuer = data[i].get('originalIssuer', None)
         secret = data[i].get('decryptedSecret', None)
         timestamp = data[i].get('timestamp', None)
         digits = data[i].get('digits', None)
+
+        if original_name is not None and original_name.replace(" ", "") != name.replace(" ", ""):
+            # generally whichever name contains ":" is more reliable (contains issuer)
+            print(f"[!] Warning: originalName ({original_name}) and name ({name}) differ, using heuristic (if it contains :) to guess best name for export")
+            if ":" in original_name and ":" not in name:
+                name = original_name
+
+        if issuer is None and ":" not in (name or "") and account_type != "authenticator":
+            # account_type often indicates the issuer (e.g. microsoft) when issuer is missing
+            # if name doesn't contain issuer (i.e. doesn't contain :), set this fallback issuer
+            print(f"[!] Warning: guessing missing issuer ({account_type}) from account type")
+            issuer = account_type
 
         # Create a Aegis_plain entry template
         # TODO check value before assignment
