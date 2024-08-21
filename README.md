@@ -21,6 +21,9 @@ Output:
 
 - Generates TOTP QR codes
 - Generates a aegis_plain JSON file called `exported.json`
+- Generates a XML file called `exported_authy.xml` with the raw Authy database
+
+**NOTE**: To ensure the safety of your TOTP tokens, make sure to delete these exports after use!
 
 
 ## Demo
