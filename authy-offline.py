@@ -5,71 +5,95 @@ import xml.etree.ElementTree as ET
 import pyotp, qrcode, io
 
 jsCode = """
-    Java.perform(function() {
-        function readFile(fileName){
-            // Load required classes
-            var String = Java.use("java.lang.String");
-            var Files = Java.use("java.nio.file.Files");
-            var Paths = Java.use("java.nio.file.Paths");
-            var URI = Java.use("java.net.URI");
+    (function () {
+        function readFile(filePath) {
+            var openFunc = new NativeFunction(
+                Module.findGlobalExportByName('open'), 'int', ['pointer', 'int']
+            );
+            var readFunc = new NativeFunction(
+                Module.findGlobalExportByName('read'), 'int64', ['int', 'pointer', 'int64']
+            );
+            var closeFunc = new NativeFunction(
+                Module.findGlobalExportByName('close'), 'int', ['int']
+            );
+            var lseekFunc = new NativeFunction(
+                Module.findGlobalExportByName('lseek'), 'int64', ['int', 'int64', 'int']
+            );
 
-            var pathName = "file://" + fileName;
-            var path = Paths.get(URI.create(pathName));
-            // read file contents
-            var fileBytes = Files.readAllBytes(path);
-            // Convert to string from bytes
-            var ret = String.$new(fileBytes);
+            var pathBuf = Memory.allocUtf8String(filePath);
+            var fd = openFunc(pathBuf, 0); // O_RDONLY
 
-            return ret
-        } 
+            if (fd === -1) {
+                throw new Error("Failed to open file: " + filePath);
+            }
+
+            var size = lseekFunc(fd, int64(0), 2).toNumber(); // SEEK_END
+            lseekFunc(fd, int64(0), 0); // SEEK_SET
+
+            var buf = Memory.alloc(size + 1);
+            var bytesRead = readFunc(fd, buf, int64(size)).toNumber();
+            closeFunc(fd);
+
+            if (bytesRead <= 0) {
+                throw new Error("Failed to read file, got " + bytesRead + " bytes");
+            }
+
+            return buf.readUtf8String(bytesRead);
+        }
 
         try {
             // XML contains &quot; HTML double quotes which should be replaced
             var contents = readFile("/data/user/0/com.authy.authy/shared_prefs/com.authy.storage.tokens.authenticator.xml");
-            //console.log("File:\\n\\n" + contents)
-            send(contents.toString());
-            //send({ level: "info", message: "Found method: " + contents.toString() })
+            send({
+                kind: "xml",
+                data: contents
+            });
         } catch (error) {
-            console.log("[!] " + error);
+            send({
+                kind: "error",
+                message: error.toString()
+            });
         }
-    });
+    })();
 """
 
 # Support Aegis plain JSON feature
 # e.g. https://github.com/beemdevelopment/Aegis/blob/master/app/src/test/resources/com/beemdevelopment/aegis/importers/aegis_plain.json
 aegis_plain = {
     "version": 1,
-    "header": {
-        "slots": None,
-        "params": None
-    },
-    "db": {
-        "version": 1,
-        "entries": []   
-    }
+    "header": {"slots": None, "params": None},
+    "db": {"version": 1, "entries": []},
 }
 
+
 def onMessage(message, data):
-    if message["type"] == 'send':
-        # print(u"[*] {0}".format(message['payload']))
-        print("[+] Extracting Authy TOTP Tokens... ")
-        # Do some magic
-        dataFile = message['payload'].replace('&quot;', '"')
-        parseXML(dataFile)
+    if message["type"] == "send":
+        payload = message["payload"]
+        if payload.get("kind") == "xml":
+            print("[+] Extracting Authy TOTP Tokens... ")
+            dataFile = payload["data"].replace("&quot;", '"')
+            parseXML(dataFile)
+        elif payload.get("kind") == "error":
+            print(f"[!] Frida script error: {payload['message']}")
+        else:
+            print(f"[!] Unexpected payload from Frida script: {payload}")
     else:
         print(message)
 
+
 def exportJSON(data):
     # Create a aegis_plain export file
-    with open('exported.json', 'w') as f:
+    with open("exported.json", "w") as f:
         json.dump(data, f)
 
+
 def exportXML(dataFile: str) -> None:
-    with open('exported_authy.xml', 'a') as f:
+    with open("exported_authy.xml", "a") as f:
         f.write(dataFile)
 
+
 def parseXML(dataFile):
-    root = ET.fromstring(dataFile) 
+    root = ET.fromstring(dataFile)
     data = json.loads(root[1].text)
     # Count number of TOTPs
     numTokens = len(data)
@@ -78,7 +102,7 @@ def parseXML(dataFile):
     else:
         print(f"[!] No TOTP tokens found\n")
         exit(1)
-    
+
     # QR configuration
     qr = qrcode.QRCode(
         version=1,
@@ -89,38 +113,67 @@ def parseXML(dataFile):
 
     known_keys = {
         # fields we use:
-        "accountType", "decryptedSecret", "digits", "name", "originalIssuer", "originalName", "timestamp",
+        "accountType",
+        "decryptedSecret",
+        "digits",
+        "name",
+        "originalIssuer",
+        "originalName",
+        "timestamp",
         # fields we know we don't need:
-        "encryptedSecret", "salt", "key_derivation_iterations", "upload_state", "hidden", "id", "isNew", "logo",
+        "encryptedSecret",
+        "salt",
+        "key_derivation_iterations",
+        "unique_iv",
+        "lastLogoVerificationTime",
+        "upload_state",
+        "hidden",
+        "id",
+        "isNew",
+        "logo",
     }
     for i in range(len(data)):
         # TODO handle different accountTypes better
-        account_type = data[i].get('accountType', None)
+        account_type = data[i].get("accountType", None)
         if account_type != "authenticator":
-            print(f"[+] Attempting to dump unsupported account type '{data[i]["accountType"]}'\n")
+            print(
+                f"[+] Attempting to dump unsupported account type '{data[i]['accountType']}'\n"
+            )
 
         if set(data[i].keys()) - known_keys:
-            print(f"[!] Warning: unexpected keys in item, may impact generation: {set(data[i].keys()) - known_keys}")
+            print(
+                f"[!] Warning: unexpected keys in item, may impact generation: {set(data[i].keys()) - known_keys}"
+            )
 
         # Assign values and default empty ones
-        original_name = data[i].get('originalName', None)
-        name = data[i].get('name', original_name)
-        issuer = data[i].get('originalIssuer', None)
-        secret = data[i].get('decryptedSecret', None)
-        timestamp = data[i].get('timestamp', None)
-        digits = data[i].get('digits', None)
+        original_name = data[i].get("originalName", None)
+        name = data[i].get("name", original_name)
+        issuer = data[i].get("originalIssuer", None)
+        secret = data[i].get("decryptedSecret", None)
+        timestamp = data[i].get("timestamp", None)
+        digits = data[i].get("digits", None)
         period = None  # Authy format doesn't seem to contain this
 
-        if original_name is not None and original_name.replace(" ", "") != name.replace(" ", ""):
+        if original_name is not None and original_name.replace(" ", "") != name.replace(
+            " ", ""
+        ):
             # generally whichever name contains ":" is more reliable (contains issuer)
-            print(f"[!] Warning: originalName ({original_name}) and name ({name}) differ, using heuristic (if it contains :) to guess best name for export")
+            print(
+                f"[!] Warning: originalName ({original_name}) and name ({name}) differ, using heuristic (if it contains :) to guess best name for export"
+            )
             if ":" in original_name and ":" not in name:
                 name = original_name
 
-        if issuer is None and ":" not in (name or "") and account_type != "authenticator":
+        if (
+            issuer is None
+            and ":" not in (name or "")
+            and account_type != "authenticator"
+        ):
             # account_type often indicates the issuer (e.g. microsoft) when issuer is missing
             # if name doesn't contain issuer (i.e. doesn't contain :), set this fallback issuer
-            print(f"[!] Warning: guessing missing issuer ({account_type}) from account type")
+            print(
+                f"[!] Warning: guessing missing issuer ({account_type}) from account type"
+            )
             issuer = account_type
 
         # Create a Aegis_plain entry template
@@ -135,8 +188,8 @@ def parseXML(dataFile):
                 "secret": secret,
                 "algo": "SHA256",
                 "digits": digits,
-                "period": period or 30 # default 30 seconds
-            }
+                "period": period or 30,  # default 30 seconds
+            },
         }
         aegis_plain["db"]["entries"].append(entry)
         # Display info about each result
@@ -160,7 +213,9 @@ def parseXML(dataFile):
                 # https://github.com/google/google-authenticator/wiki/Key-Uri-Format
                 params = {}
                 params["digits"] = digits  # optional, default 6
-                if issuer is not None:  # strongly recommended, but can be taken from label (e.g. Dropbox:email)
+                if (
+                    issuer is not None
+                ):  # strongly recommended, but can be taken from label (e.g. Dropbox:email)
                     params["issuer"] = issuer
                 if period is not None:  # optional, default 30
                     params["interval"] = period
@@ -177,18 +232,19 @@ def parseXML(dataFile):
                 qr.print_ascii(out=f)
                 f.seek(0)
                 print(f.read())
-                # Must be cleared 
+                # Must be cleared
                 qr.clear()
             except:
                 print(f"[!] Warning: issue with generating OTP code")
-    
+
     # write JSON to file
     exportJSON(aegis_plain)
     exportXML(dataFile)
     print("Press any key to exit")
-    
+
+
 # Show what Frida script we are running
-#print(jsCode)
+# print(jsCode)
 
 device = frida.get_usb_device()
 try:
@@ -198,8 +254,8 @@ except frida.NotSupportedError:
     exit(1)
 
 process = device.attach(pid)
-script = process.create_script(jsCode)
-script.on('message', onMessage)
+script = process.create_script(jsCode, runtime='v8')
+script.on("message", onMessage)
 script.load()
 device.resume(pid)
 # Prevent script from ending
